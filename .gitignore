@@ -17,3 +17,6 @@ build/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Coverage file
+/backend/coverage.xml
