@@ -14,4 +14,9 @@ def create_app(test_config=None):
     db.init_app(app)
     migrate.init_app(app, db)
 
+    # Health check endpoint
+    @app.get("/health")
+    def health():
+        return {"status": "ok"}, 200
+
     return app
