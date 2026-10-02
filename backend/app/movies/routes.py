@@ -1,4 +1,5 @@
 from flask import Blueprint, g, jsonify, request
+from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from ..audit.actions import AuditAction
 from ..audit.service import create_audit_event
@@ -11,6 +12,7 @@ movies_bp = Blueprint("movies", __name__)
 
 
 @movies_bp.get("/search")
+@jwt_required(optional=True)
 def search_movies():
     query = request.args.get("q", "").strip()
 
@@ -27,7 +29,9 @@ def search_movies():
     try:
         service = TMDBService()
         results = service.search_movies(query)
+        identity = get_jwt_identity()
         create_audit_event(
+            user_id=int(identity) if identity is not None else None,
             action=AuditAction.MOVIE_SEARCHED,
             resource_type="movie",
             correlation_id=g.correlation_id,
@@ -47,6 +51,7 @@ def search_movies():
     
 
 @movies_bp.get("/<int:tmdb_id>")
+@jwt_required(optional=True)
 def get_movie(tmdb_id):
     try:
         movie = MovieService.get_or_import_movie(tmdb_id)
@@ -56,7 +61,9 @@ def get_movie(tmdb_id):
             "error": str(exc)
         }), 502
 
+    identity = get_jwt_identity()
     create_audit_event(
+        user_id=int(identity) if identity is not None else None,
         action=AuditAction.MOVIE_VIEWED,
         resource_type="movie",
         resource_id=movie.id,

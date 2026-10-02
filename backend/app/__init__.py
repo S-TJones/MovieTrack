@@ -9,6 +9,7 @@ from .movies.routes import movies_bp
 from .collections.routes import collections_bp
 from .ratings.routes import ratings_bp
 from .ai.routes import ai_bp
+from .audit.routes import audit_bp
 
 
 def create_app(test_config=None):
@@ -53,6 +54,7 @@ def create_app(test_config=None):
         name="ratings_legacy",
     )
     app.register_blueprint(ai_bp, url_prefix="/api/ai")
+    app.register_blueprint(audit_bp, url_prefix="/api/audit")
 
     # Health check endpoint
     @app.get("/health")

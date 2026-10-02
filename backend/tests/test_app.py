@@ -65,6 +65,44 @@ def test_health_endpoint(app):
     uuid.UUID(response.headers["X-Correlation-ID"])
 
 
+def test_audit_history_is_authenticated_and_scoped_to_current_user(app):
+    with app.app_context():
+        first_user = User(email="first@example.com", password_hash="unused")
+        second_user = User(email="second@example.com", password_hash="unused")
+        db.session.add_all([first_user, second_user])
+        db.session.flush()
+        create_audit_event(
+            user_id=first_user.id,
+            action=AuditAction.MOVIE_ADDED_TO_COLLECTION,
+            resource_type="movie",
+            resource_id=12,
+            correlation_id="first-request",
+        )
+        create_audit_event(
+            user_id=second_user.id,
+            action=AuditAction.RATING_CREATED,
+            resource_type="movie",
+            resource_id=24,
+            correlation_id="second-request",
+        )
+        db.session.commit()
+        first_user_id = first_user.id
+
+    client = app.test_client()
+    assert client.get("/api/audit/history").status_code == 401
+    response = client.get(
+        "/api/audit/history?limit=1",
+        headers=auth_headers(app, first_user_id),
+    )
+
+    assert response.status_code == 200
+    assert len(response.get_json()["items"]) == 1
+    event = response.get_json()["items"][0]
+    assert event["action"] == AuditAction.MOVIE_ADDED_TO_COLLECTION.value
+    assert event["correlation_id"] == "first-request"
+    assert response.get_json()["has_more"] is False
+
+
 def test_correlation_id_is_echoed_and_used_by_audit_service(app):
     correlation_id = "client-trace-123"
     response = app.test_client().get(
