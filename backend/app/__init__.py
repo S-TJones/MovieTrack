@@ -2,6 +2,7 @@ from flask import Flask
 
 from .config import Config
 from .extensions import db, migrate
+from .models.users import User
 
 
 def create_app(test_config=None):
