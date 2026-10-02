@@ -1,9 +1,11 @@
-from flask import Blueprint, request
+from flask import Blueprint, g, request
 
 from flask_jwt_extended import get_jwt_identity, jwt_required
 from sqlalchemy.exc import IntegrityError
 from math import isfinite
 
+from ..audit.actions import AuditAction
+from ..audit.service import create_audit_event
 from ..extensions import db
 from ..models import Movie, Rating
 
@@ -71,6 +73,13 @@ def create_rating(movie_id):
     )
 
     db.session.add(rating)
+    create_audit_event(
+        user_id=user_id,
+        action=AuditAction.RATING_CREATED,
+        resource_type="movie",
+        resource_id=movie_id,
+        correlation_id=g.correlation_id,
+    )
     try:
         db.session.commit()
     except IntegrityError:
@@ -107,6 +116,13 @@ def update_rating(movie_id):
         }, 404
 
     rating.rating = rating_value
+    create_audit_event(
+        user_id=user_id,
+        action=AuditAction.RATING_UPDATED,
+        resource_type="movie",
+        resource_id=movie_id,
+        correlation_id=g.correlation_id,
+    )
 
     db.session.commit()
 
@@ -133,6 +149,13 @@ def delete_rating(movie_id):
         }, 404
 
     db.session.delete(rating)
+    create_audit_event(
+        user_id=user_id,
+        action=AuditAction.RATING_DELETED,
+        resource_type="movie",
+        resource_id=movie_id,
+        correlation_id=g.correlation_id,
+    )
     db.session.commit()
 
     return "", 204

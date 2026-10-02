@@ -1,11 +1,14 @@
 import pytest
 import requests
+import uuid
 from flask_jwt_extended import create_access_token
 from sqlalchemy.exc import IntegrityError
 
 from app import create_app
+from app.audit.actions import AuditAction
+from app.audit.service import create_audit_event
 from app.extensions import db
-from app.models import Collection, Genre, Movie, Person, Rating, User
+from app.models import AuditEvent, Collection, Genre, Movie, Person, Rating, User
 from app.movies.tmdb_service import TMDBError, TMDBService
 
 
@@ -59,6 +62,43 @@ def test_health_endpoint(app):
 
     assert response.status_code == 200
     assert response.get_json() == {"status": "ok"}
+    uuid.UUID(response.headers["X-Correlation-ID"])
+
+
+def test_correlation_id_is_echoed_and_used_by_audit_service(app):
+    correlation_id = "client-trace-123"
+    response = app.test_client().get(
+        "/health",
+        headers={"X-Correlation-ID": correlation_id},
+    )
+
+    assert response.headers["X-Correlation-ID"] == correlation_id
+
+    with app.test_request_context(
+        "/test",
+        headers={"X-Correlation-ID": correlation_id},
+    ):
+        app.preprocess_request()
+        event = create_audit_event(
+            action=AuditAction.MOVIE_VIEWED,
+            resource_type="movie",
+            resource_id=0,
+            metadata={"cached": True},
+        )
+        assert event.correlation_id == correlation_id
+        assert event.resource_id == "0"
+        assert event.metadata_json == {"cached": True}
+        assert event in db.session
+        db.session.rollback()
+
+
+def test_audit_service_rejects_unregistered_actions(app):
+    with app.app_context():
+        with pytest.raises(ValueError):
+            create_audit_event(
+                action="MOVIE_MADE_UP",
+                resource_type="movie",
+            )
 
 
 def test_auth_validation_duplicate_and_current_user(app):
@@ -88,6 +128,14 @@ def test_auth_validation_duplicate_and_current_user(app):
         json={"email": "person@example.com", "password": "incorrect"},
     )
     assert invalid_login.status_code == 401
+    with app.app_context():
+        failed_login_event = AuditEvent.query.filter_by(
+            action=AuditAction.LOGIN_FAILED.value,
+        ).one()
+        assert failed_login_event.user_id is not None
+        assert failed_login_event.correlation_id == (
+            invalid_login.headers["X-Correlation-ID"]
+        )
 
     token = registration.get_json()["access_token"]
     current_user = client.get(
@@ -406,8 +454,10 @@ def test_core_movie_collection_rating_flow(app, monkeypatch):
     registration = client.post(
         "/api/auth/register",
         json={"email": "core@example.com", "password": "password123"},
+        headers={"X-Correlation-ID": "register-core-flow"},
     )
     assert registration.status_code == 201
+    assert registration.headers["X-Correlation-ID"] == "register-core-flow"
 
     login = client.post(
         "/api/auth/login",
@@ -531,3 +581,22 @@ def test_core_movie_collection_rating_flow(app, monkeypatch):
     )
     assert delete_rating_response.status_code == 204
     assert delete_rating_response.data == b""
+
+    with app.app_context():
+        registered_event = AuditEvent.query.filter_by(
+            action=AuditAction.USER_REGISTERED.value,
+        ).one()
+        assert registered_event.correlation_id == "register-core-flow"
+        recorded_actions = {
+            event.action for event in AuditEvent.query.all()
+        }
+        assert {
+            AuditAction.LOGIN_SUCCESS.value,
+            AuditAction.MOVIE_SEARCHED.value,
+            AuditAction.MOVIE_VIEWED.value,
+            AuditAction.MOVIE_ADDED_TO_COLLECTION.value,
+            AuditAction.MOVIE_REMOVED_FROM_COLLECTION.value,
+            AuditAction.RATING_CREATED.value,
+            AuditAction.RATING_UPDATED.value,
+            AuditAction.RATING_DELETED.value,
+        } <= recorded_actions

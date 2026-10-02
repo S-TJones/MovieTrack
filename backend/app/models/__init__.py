@@ -4,6 +4,7 @@ from .person import Person
 from .users import User
 from .rating import Rating
 from .collection import Collection
+from .audit_event import AuditEvent
 
 __all__ = [
     "Genre",
@@ -11,6 +12,6 @@ __all__ = [
     "Person",
     "User",
     "Rating",
-    "Collection"
-    "User",
+    "Collection",
+    "AuditEvent",
 ]

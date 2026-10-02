@@ -1,5 +1,8 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, g, jsonify, request
 
+from ..audit.actions import AuditAction
+from ..audit.service import create_audit_event
+from ..extensions import db
 from .tmdb_service import TMDBError, TMDBService
 from .service import MovieService
 
@@ -24,6 +27,12 @@ def search_movies():
     try:
         service = TMDBService()
         results = service.search_movies(query)
+        create_audit_event(
+            action=AuditAction.MOVIE_SEARCHED,
+            resource_type="movie",
+            correlation_id=g.correlation_id,
+        )
+        db.session.commit()
 
         return {
             "results": results.get("results", []),
@@ -46,6 +55,14 @@ def get_movie(tmdb_id):
         return jsonify({
             "error": str(exc)
         }), 502
+
+    create_audit_event(
+        action=AuditAction.MOVIE_VIEWED,
+        resource_type="movie",
+        resource_id=movie.id,
+        correlation_id=g.correlation_id,
+    )
+    db.session.commit()
 
     return jsonify({
         "id": movie.id,

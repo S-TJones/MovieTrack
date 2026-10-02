@@ -1,8 +1,10 @@
-from flask import Blueprint, jsonify
+from flask import Blueprint, g, jsonify
 
 from flask_jwt_extended import get_jwt_identity, jwt_required
 from sqlalchemy.exc import IntegrityError
 
+from ..audit.actions import AuditAction
+from ..audit.service import create_audit_event
 from ..extensions import db
 from ..models import Collection, Movie
 
@@ -65,6 +67,13 @@ def add_to_collection(movie_id):
     )
 
     db.session.add(collection_item)
+    create_audit_event(
+        user_id=user_id,
+        action=AuditAction.MOVIE_ADDED_TO_COLLECTION,
+        resource_type="movie",
+        resource_id=movie.id,
+        correlation_id=g.correlation_id,
+    )
     try:
         db.session.commit()
     except IntegrityError:
@@ -94,6 +103,13 @@ def remove_from_collection(movie_id):
         }), 404
 
     db.session.delete(collection_item)
+    create_audit_event(
+        user_id=user_id,
+        action=AuditAction.MOVIE_REMOVED_FROM_COLLECTION,
+        resource_type="movie",
+        resource_id=collection_item.movie_id,
+        correlation_id=g.correlation_id,
+    )
     db.session.commit()
 
     return "", 204

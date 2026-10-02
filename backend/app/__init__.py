@@ -1,8 +1,10 @@
-from flask import Flask
+from uuid import uuid4
+
+from flask import Flask, g, request
 
 from .config import Config
 from .extensions import db, migrate, bcrypt, jwt
-from .models import User, Movie, Person, Genre, Rating, Collection
+from .models import User, Movie, Person, Genre, Rating, Collection, AuditEvent
 from .movies.routes import movies_bp
 from .collections.routes import collections_bp
 from .ratings.routes import ratings_bp
@@ -19,6 +21,20 @@ def create_app(test_config=None):
     migrate.init_app(app, db)
     bcrypt.init_app(app)
     jwt.init_app(app)
+
+    @app.before_request
+    def set_correlation_id():
+        supplied_id = request.headers.get("X-Correlation-ID", "").strip()
+        g.correlation_id = (
+            supplied_id
+            if supplied_id and len(supplied_id) <= 100
+            else str(uuid4())
+        )
+
+    @app.after_request
+    def add_correlation_id(response):
+        response.headers["X-Correlation-ID"] = g.correlation_id
+        return response
 
     from .auth.routes import auth_bp
     app.register_blueprint(auth_bp, url_prefix="/api/auth")

@@ -1,6 +1,8 @@
-from flask import Blueprint, request
+from flask import Blueprint, g, request
 from flask_jwt_extended import create_access_token, get_jwt_identity, jwt_required
 
+from ..audit.actions import AuditAction
+from ..audit.service import create_audit_event
 from ..extensions import bcrypt, db
 from ..models.users import User
 
@@ -40,6 +42,14 @@ def register():
     )
 
     db.session.add(user)
+    db.session.flush()
+    create_audit_event(
+        user_id=user.id,
+        action=AuditAction.USER_REGISTERED,
+        resource_type="user",
+        resource_id=user.id,
+        correlation_id=g.correlation_id,
+    )
     db.session.commit()
 
     access_token = create_access_token(identity=str(user.id))
@@ -72,9 +82,26 @@ def login():
         user.password_hash,
         password,
     ):
+        create_audit_event(
+            user_id=user.id if user else None,
+            action=AuditAction.LOGIN_FAILED,
+            resource_type="user",
+            resource_id=user.id if user else None,
+            correlation_id=g.correlation_id,
+        )
+        db.session.commit()
         return {
             "error": "Invalid email or password."
         }, 401
+
+    create_audit_event(
+        user_id=user.id,
+        action=AuditAction.LOGIN_SUCCESS,
+        resource_type="user",
+        resource_id=user.id,
+        correlation_id=g.correlation_id,
+    )
+    db.session.commit()
 
     access_token = create_access_token(identity=str(user.id))
 
