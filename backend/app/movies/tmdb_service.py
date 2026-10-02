@@ -77,6 +77,18 @@ class TMDBService:
             },
         )
 
+    def search_keywords(self, query):
+        return self._get(
+            "/search/keyword",
+            params={"query": query, "page": 1},
+        )
+
+    def get_movie_genres(self):
+        return self._get(
+            "/genre/movie/list",
+            params={"language": "en-US"},
+        )
+
     def discover_movies(self, **filters):
         return self._get(
             "/discover/movie",

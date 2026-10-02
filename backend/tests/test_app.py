@@ -267,18 +267,24 @@ def test_tmdb_service_builds_requests_for_supported_endpoints(monkeypatch):
     assert service.search_movies("Inception") == {"results": []}
     assert service.get_movie_details(27205) == {"results": []}
     assert service.search_person("Nolan") == {"results": []}
+    assert service.search_keywords("heist") == {"results": []}
+    assert service.get_movie_genres() == {"results": []}
     assert service.discover_movies(with_genres=28) == {"results": []}
 
     assert [url for url, _ in requests_made] == [
         "https://api.themoviedb.org/3/search/movie",
         "https://api.themoviedb.org/3/movie/27205",
         "https://api.themoviedb.org/3/search/person",
+        "https://api.themoviedb.org/3/search/keyword",
+        "https://api.themoviedb.org/3/genre/movie/list",
         "https://api.themoviedb.org/3/discover/movie",
     ]
     assert requests_made[0][1]["params"]["query"] == "Inception"
     assert requests_made[1][1]["params"]["append_to_response"] == "credits"
     assert requests_made[2][1]["params"]["query"] == "Nolan"
-    assert requests_made[3][1]["params"]["with_genres"] == 28
+    assert requests_made[3][1]["params"]["query"] == "heist"
+    assert requests_made[4][1]["params"]["language"] == "en-US"
+    assert requests_made[5][1]["params"]["with_genres"] == 28
     assert requests_made[0][1]["headers"]["Authorization"] == (
         "Bearer test-access-token"
     )
