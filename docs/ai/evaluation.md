@@ -1,5 +1,18 @@
 # AI Search Evaluation
 
+## AI integration approach
+
+The AI path is intentionally narrow and follows a strict control flow:
+
+1. User enters a natural-language query in the React UI.
+2. The frontend calls the Flask API at `POST /api/ai/search`.
+3. Flask uses a dedicated `LLMClient` in `backend/app/ai/client.py` to call the configured provider.
+4. The provider response is parsed as JSON and validated by `AIService` against `backend/app/ai/schemas.py`.
+5. If validation or provider execution fails, the app falls back to standard TMDB keyword/title search instead of executing unsafe database logic.
+6. Only validated filters are used to resolve TMDB genre/person/keyword IDs and return results to the UI.
+
+This separation is deliberate: the LLM interprets the user request; the application performs the actual data access.
+
 ## Method
 
 The evaluation uses deterministic structured responses injected at the LLM-client boundary. It exercises application validation and prompt/data separation without calling a paid provider or relying on model nondeterminism.
@@ -28,6 +41,12 @@ python -m pytest tests/test_ai_evaluation.py -q
 | 12 | Reversed year range | Reject response | PASS |
 
 Latest recorded run: **12 passed**. The full backend suite also passed with the AI evaluation included.
+
+## Results summary
+
+- 12/12 deterministic evaluation cases passed.
+- Rejected cases included malformed schema output, unsupported intents, SQL-like keys, invented TMDB metadata, invalid year values, and reversed year ranges.
+- The system remains usable when AI support is unavailable because it gracefully falls back to standard search.
 
 ## Limits
 
