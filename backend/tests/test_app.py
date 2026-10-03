@@ -5,6 +5,7 @@ from flask_jwt_extended import create_access_token
 from sqlalchemy.exc import IntegrityError
 
 from app import create_app
+from app.analytics.service import summarize_user_activity
 from app.audit.actions import AuditAction
 from app.audit.service import create_audit_event
 from app.extensions import db
@@ -101,6 +102,57 @@ def test_audit_history_is_authenticated_and_scoped_to_current_user(app):
     assert event["action"] == AuditAction.MOVIE_ADDED_TO_COLLECTION.value
     assert event["correlation_id"] == "first-request"
     assert response.get_json()["has_more"] is False
+
+
+def test_activity_analytics_is_reproducible_and_user_scoped(app):
+    from datetime import datetime, timedelta, timezone
+
+    with app.app_context():
+        first_user = User(email="analytics-one@example.com", password_hash="unused")
+        second_user = User(email="analytics-two@example.com", password_hash="unused")
+        db.session.add_all([first_user, second_user])
+        db.session.flush()
+        fixed_now = datetime(2026, 10, 2, 12, tzinfo=timezone.utc)
+        create_audit_event(
+            user_id=first_user.id,
+            action=AuditAction.MOVIE_SEARCHED,
+            resource_type="movie",
+            correlation_id="analysis-1",
+        )
+        create_audit_event(
+            user_id=first_user.id,
+            action=AuditAction.RATING_CREATED,
+            resource_type="movie",
+            correlation_id="analysis-2",
+        )
+        create_audit_event(
+            user_id=second_user.id,
+            action=AuditAction.RATING_CREATED,
+            resource_type="movie",
+            correlation_id="other-user",
+        )
+        current_events = AuditEvent.query.filter_by(user_id=first_user.id).all()
+        current_events[0].created_at = fixed_now - timedelta(days=1)
+        current_events[1].created_at = fixed_now - timedelta(days=2)
+        db.session.commit()
+        user_id = first_user.id
+
+        summary = summarize_user_activity(user_id, days=7, now=fixed_now)
+
+    assert summary["total_events"] == 2
+    assert summary["by_action"] == {
+        AuditAction.MOVIE_SEARCHED.value: 1,
+        AuditAction.RATING_CREATED.value: 1,
+    }
+    assert summary["by_day"] == {"2026-09-30": 1, "2026-10-01": 1}
+
+    client = app.test_client()
+    headers = auth_headers(app, user_id)
+    response = client.get("/api/analytics/activity?days=365", headers=headers)
+    assert response.status_code == 200
+    assert response.get_json()["total_events"] == 2
+    assert client.get("/api/analytics/activity?days=abc", headers=headers).status_code == 400
+    assert client.get("/api/analytics/activity?days=0", headers=headers).status_code == 400
 
 
 def test_correlation_id_is_echoed_and_used_by_audit_service(app):

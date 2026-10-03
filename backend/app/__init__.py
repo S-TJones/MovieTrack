@@ -10,6 +10,7 @@ from .collections.routes import collections_bp
 from .ratings.routes import ratings_bp
 from .ai.routes import ai_bp
 from .audit.routes import audit_bp
+from .analytics.routes import analytics_bp
 
 
 def create_app(test_config=None):
@@ -55,6 +56,7 @@ def create_app(test_config=None):
     )
     app.register_blueprint(ai_bp, url_prefix="/api/ai")
     app.register_blueprint(audit_bp, url_prefix="/api/audit")
+    app.register_blueprint(analytics_bp, url_prefix="/api/analytics")
 
     # Health check endpoint
     @app.get("/health")

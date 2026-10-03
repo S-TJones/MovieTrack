@@ -1,11 +1,7 @@
-import json
-import os
-
-import requests
-
 from ..extensions import db
 from ..models import Collection, Rating
 from ..movies.tmdb_service import TMDBService
+from .client import AIProviderError, AIRateLimitError, LLMClient
 from .prompts import (
 	AI_RECOMMENDATIONS_SYSTEM_PROMPT,
 	AI_SEARCH_SYSTEM_PROMPT,
@@ -17,81 +13,6 @@ from .schemas import (
 )
 
 
-class AIProviderError(Exception):
-	pass
-
-
-class AIRateLimitError(AIProviderError):
-	pass
-
-
-class LLMClient:
-	def __init__(self):
-		self.api_key = os.getenv("LLM_API_KEY")
-		self.base_url = os.getenv(
-			"LLM_API_BASE_URL",
-			"https://api.openai.com/v1",
-		).rstrip("/")
-		self.model = os.getenv("LLM_MODEL", "gpt-4o-mini")
-
-	def complete_json(self, system_prompt, data):
-		if not self.api_key:
-			raise AIProviderError("LLM_API_KEY is not configured.")
-
-		try:
-			response = requests.post(
-				f"{self.base_url}/chat/completions",
-				headers={
-					"Authorization": f"Bearer {self.api_key}",
-					"Content-Type": "application/json",
-				},
-				json={
-					"model": self.model,
-					"messages": [
-						{"role": "system", "content": system_prompt},
-						{
-							"role": "user",
-							"content": json.dumps(data, ensure_ascii=True),
-						},
-					],
-					"response_format": {"type": "json_object"},
-					"temperature": 0,
-				},
-				timeout=20,
-			)
-		except requests.Timeout as exc:
-			raise TimeoutError("LLM request timed out.") from exc
-		except requests.RequestException as exc:
-			raise AIProviderError("LLM request failed.") from exc
-
-		if response.status_code == 429:
-			raise AIRateLimitError("LLM rate limit reached.")
-		if response.status_code != 200:
-			raise AIProviderError("LLM returned an unexpected response.")
-
-		try:
-			content = response.json()["choices"][0]["message"]["content"]
-			payload = json.loads(content)
-		except (KeyError, IndexError, TypeError, ValueError) as exc:
-			raise AIValidationError("LLM returned invalid JSON output.") from exc
-
-		return payload
-
-	def parse_search(self, query):
-		payload = self.complete_json(
-			AI_SEARCH_SYSTEM_PROMPT,
-			{"query": query},
-		)
-		return validate_ai_search_response(payload)
-
-	def parse_recommendations(self, user_preferences):
-		payload = self.complete_json(
-			AI_RECOMMENDATIONS_SYSTEM_PROMPT,
-			{"user_preferences": user_preferences},
-		)
-		return validate_ai_recommendations_response(payload)
-
-
 class AIService:
 	def __init__(self, llm_client=None, tmdb_service=None):
 		self.llm = llm_client or LLMClient()
@@ -99,7 +20,7 @@ class AIService:
 
 	def search(self, query):
 		try:
-			filters = self.llm.parse_search(query)
+			filters = self.parse_movie_search(query)
 		except (AIProviderError, AIValidationError, TimeoutError):
 			result = self.tmdb.search_movies(query)
 			return {
@@ -114,6 +35,20 @@ class AIService:
 			"fallback": False,
 			"results": result.get("results", []),
 		}
+
+	def parse_movie_search(self, query):
+		payload = self.llm.generate_structured(
+			AI_SEARCH_SYSTEM_PROMPT,
+			{"query": query},
+		)
+		return validate_ai_search_response(payload)
+
+	def parse_recommendations(self, user_preferences):
+		payload = self.llm.generate_structured(
+			AI_RECOMMENDATIONS_SYSTEM_PROMPT,
+			{"user_preferences": user_preferences},
+		)
+		return validate_ai_recommendations_response(payload)
 
 	def _search_with_filters(self, query, filters):
 		tmdb_filters = {"sort_by": "popularity.desc"}
@@ -226,7 +161,7 @@ class AIService:
 		}
 
 		try:
-			result = self.llm.parse_recommendations(preferences)
+			result = self.parse_recommendations(preferences)
 		except (AIProviderError, AIValidationError, TimeoutError):
 			return self._fallback_recommendations(ratings, excluded_ids)
 

@@ -22,6 +22,7 @@ export default function Search() {
   const [query, setQuery] = useState(searchParams.get("q") || "");
   const [results, setResults] = useState([]);
   const [filters, setFilters] = useState(null);
+  const [fallback, setFallback] = useState(false);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState(null);
@@ -33,12 +34,14 @@ export default function Search() {
     setError(null);
     setSearched(true);
     setFilters(null);
+    setFallback(false);
     try {
       const data = mode === "ai"
         ? await searchWithAI(query.trim())
         : await searchMovies(query.trim());
       setResults(data.results || []);
       setFilters(data.filters || null);
+      setFallback(Boolean(data.fallback));
     } catch (requestError) {
       setError(requestError);
       setResults([]);
@@ -62,6 +65,7 @@ export default function Search() {
       <SearchBar value={query} onChange={setQuery} onSubmit={submitSearch} placeholder={mode === "ai" ? "Describe the kind of film you want" : "Search titles, cast, or directors"} />
       {mode === "ai" && <p className="inline-note">Describe a mood, genre, cast member, or time period. The results are matched against the movie catalog.</p>}
       {filters && <div className="filter-summary"><span className="eyebrow">AI READ</span>{describeFilters(filters).map((filter) => <span className="filter-chip" key={filter}>{filter}</span>)}</div>}
+      {mode === "ai" && fallback && <p className="inline-note" role="status">AI interpretation is unavailable; showing standard movie search results.</p>}
       <ErrorMessage error={error} />
       <section className="section-block search-results">
         <div className="section-heading"><div><p className="eyebrow">{searched ? (mode === "ai" ? "AI-ASSISTED RESULTS" : "CATALOG RESULTS") : "START WITH A TITLE"}</p><h2>{searched ? `Matches for “${query}”` : "What are you looking for?"}</h2></div></div>
