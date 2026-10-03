@@ -16,10 +16,16 @@ class LLMClient:
 	def __init__(self):
 		self.api_key = os.getenv("LLM_API_KEY")
 		self.base_url = os.getenv(
-			"LLM_API_BASE_URL",
-			"https://api.openai.com/v1",
+			"LLM_BASE_URL",
+			os.getenv("LLM_API_BASE_URL", "https://api.openai.com/v1"),
 		).rstrip("/")
 		self.model = os.getenv("LLM_MODEL", "gpt-4o-mini")
+		try:
+			self.timeout_seconds = float(os.getenv("LLM_TIMEOUT_SECONDS", "20"))
+		except ValueError as exc:
+			raise ValueError("LLM_TIMEOUT_SECONDS must be numeric.") from exc
+		if not 1 <= self.timeout_seconds <= 120:
+			raise ValueError("LLM_TIMEOUT_SECONDS must be between 1 and 120.")
 
 	def generate_structured(self, system_prompt, user_data):
 		if not self.api_key:
@@ -44,7 +50,7 @@ class LLMClient:
 					"response_format": {"type": "json_object"},
 					"temperature": 0,
 				},
-				timeout=20,
+				timeout=self.timeout_seconds,
 			)
 		except requests.Timeout as exc:
 			raise TimeoutError("LLM request timed out.") from exc

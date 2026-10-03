@@ -127,6 +127,26 @@ def test_llm_client_uses_json_mode_and_separate_user_data(monkeypatch):
     assert request_kwargs["timeout"] == 20
 
 
+def test_llm_client_uses_deployment_base_url_and_timeout(monkeypatch):
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_BASE_URL", "https://provider.example/v1/")
+    monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "7")
+    requests_made = []
+
+    def fake_post(url, **kwargs):
+        requests_made.append((url, kwargs))
+        return _FakeHTTPResponse(
+            200,
+            {"choices": [{"message": {"content": "{}"}}]},
+        )
+
+    monkeypatch.setattr("app.ai.client.requests.post", fake_post)
+    LLMClient().generate_structured("system", {})
+
+    assert requests_made[0][0] == "https://provider.example/v1/chat/completions"
+    assert requests_made[0][1]["timeout"] == 7
+
+
 def test_llm_client_reports_missing_key_and_provider_errors(monkeypatch):
     monkeypatch.delenv("LLM_API_KEY", raising=False)
     with pytest.raises(AIProviderError, match="LLM_API_KEY"):

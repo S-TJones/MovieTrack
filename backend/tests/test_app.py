@@ -8,6 +8,7 @@ from app import create_app
 from app.analytics.service import summarize_user_activity
 from app.audit.actions import AuditAction
 from app.audit.service import create_audit_event
+from app.config import _normalize_database_url
 from app.extensions import db
 from app.models import AuditEvent, Collection, Genre, Movie, Person, Rating, User
 from app.movies.tmdb_service import TMDBError, TMDBService
@@ -56,6 +57,57 @@ def test_create_app():
     app = create_app({"TESTING": True, "SQLALCHEMY_DATABASE_URI": "sqlite://"})
 
     assert app.testing
+
+
+@pytest.mark.parametrize(
+    ("database_url", "expected"),
+    [
+        (
+            "postgres://user:password@db.example.test/app",
+            "postgresql+psycopg2://user:password@db.example.test/app",
+        ),
+        (
+            "postgresql://user:password@db.example.test/app",
+            "postgresql+psycopg2://user:password@db.example.test/app",
+        ),
+        (
+            "postgresql+psycopg://user:password@db.example.test/app",
+            "postgresql+psycopg://user:password@db.example.test/app",
+        ),
+    ],
+)
+def test_database_url_normalizes_for_installed_postgres_driver(database_url, expected):
+    assert _normalize_database_url(database_url) == expected
+
+
+def test_cors_allows_only_configured_frontend_origins():
+    app = create_app({
+        "TESTING": True,
+        "SQLALCHEMY_DATABASE_URI": "sqlite://",
+        "JWT_SECRET_KEY": "test-secret-that-is-at-least-32-bytes",
+        "FRONTEND_ORIGINS": "https://app.example.test,http://localhost:5173",
+    })
+    client = app.test_client()
+
+    allowed = client.options(
+        "/api/audit/history",
+        headers={
+            "Origin": "https://app.example.test",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "authorization,x-correlation-id",
+        },
+    )
+    denied = client.options(
+        "/api/audit/history",
+        headers={
+            "Origin": "https://untrusted.example",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+
+    assert allowed.headers["Access-Control-Allow-Origin"] == "https://app.example.test"
+    assert "X-Correlation-ID" in allowed.headers["Access-Control-Expose-Headers"]
+    assert "Access-Control-Allow-Origin" not in denied.headers
 
 
 def test_health_endpoint(app):

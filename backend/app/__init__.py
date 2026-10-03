@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from flask import Flask, g, request
+from flask_cors import CORS
 
 from .config import Config
 from .extensions import db, migrate, bcrypt, jwt
@@ -19,6 +20,20 @@ def create_app(test_config=None):
 
     if test_config is not None:
         app.config.update(test_config)
+
+    configured_origins = app.config.get("FRONTEND_ORIGINS", [])
+    if isinstance(configured_origins, str):
+        configured_origins = [
+            origin.strip()
+            for origin in configured_origins.split(",")
+            if origin.strip()
+        ]
+    CORS(
+        app,
+        resources={r"/api/*": {"origins": configured_origins}},
+        allow_headers=["Authorization", "Content-Type", "X-Correlation-ID"],
+        expose_headers=["X-Correlation-ID"],
+    )
 
     db.init_app(app)
     migrate.init_app(app, db)
